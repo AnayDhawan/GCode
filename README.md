@@ -96,7 +96,8 @@ always wins.
 Write commit messages as a single imperative sentence, no period, under 72 chars.
 ```
 
-- `/skills` — list every skill visible from the current directory
+- `/skills` — list every skill visible from the current directory, one per
+  line (name, color-coded source tag, truncated description)
 - `/skill <name>` — activate one for the rest of the session (its content is
   appended to the session's system prompt)
 - `/skill import <npm-package>` — run `npx <npm-package>` in a scratch
@@ -120,7 +121,7 @@ Commands (start a line with `/`):
 - `/model <id|#n>` — switch models (use an id, or `#n` from `/models`)
 - `/history` — show recent turns
 - `/status` — quick git status
-- `/skills` — list skills from `.gcode/skills/` (project + user)
+- `/skills` — list skills (project, user, and `~/.claude/skills`)
 - `/skill <name>` — activate a skill for this session
 - `/skill import <npm-package>` — import a skill via `npx` (asks for approval first)
 - `/clear` — start a fresh session
