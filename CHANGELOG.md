@@ -22,6 +22,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Automated GitHub Release workflow: pushing a `v*` tag builds sdist+wheel, verifies imports/CLI/version consistency, checks the tag matches `gcode.__version__`, audits dependencies, and publishes a GitHub Release with notes pulled from `CHANGELOG.md` and the built artifacts attached (see `docs/RELEASING.md`)
 - Importable skills: a dedicated `.gcode/skills/` folder (project and user-level) for Markdown instruction snippets, `/skills` to list them, `/skill <name>` to activate one for the session, and `/skill import <npm-package>` to fetch one via `npx` (same `y/n` approval as bash commands)
 - Claude Code skills compatibility: `~/.claude/skills/` is scanned as a lowest-precedence skills source, accepting both `<name>/SKILL.md` folders and flat `<name>.md` files, with YAML frontmatter descriptions shown by `/skills` (precedence: project > user > claude)
+- `grep` takes a `max_results` parameter (default 200) so a broad search can't blow out the model's context; truncated output says so
+- `list_dir` skips `.git` and `__pycache__`, and honors a `.gitignore` in the listed directory
 
 ### Changed
 - `/skills` output reformatted: one line per skill with a padded name column, color-coded source tag (project/user/claude), and descriptions truncated to ~72 chars for scannability

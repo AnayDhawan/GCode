@@ -39,6 +39,34 @@ def test_list_dir(tmp_path):
     assert "sub/" in out
 
 
+def test_list_dir_skips_git_and_pycache(tmp_path):
+    (tmp_path / "a.txt").write_text("x")
+    (tmp_path / ".git").mkdir()
+    (tmp_path / "__pycache__").mkdir()
+    out = list_dir.invoke({"path": str(tmp_path)})
+    assert "a.txt" in out
+    assert ".git" not in out
+    assert "__pycache__" not in out
+
+
+def test_list_dir_honors_gitignore(tmp_path):
+    (tmp_path / "keep.py").write_text("x")
+    (tmp_path / "build").mkdir()
+    (tmp_path / "ignored.log").write_text("x")
+    (tmp_path / ".gitignore").write_text("build\n*.log\n")
+    out = list_dir.invoke({"path": str(tmp_path)})
+    assert "keep.py" in out
+    assert ".gitignore" in out
+    assert "build" not in out
+    assert "ignored.log" not in out
+
+
+def test_list_dir_without_gitignore_lists_everything(tmp_path):
+    (tmp_path / "a.txt").write_text("x")
+    out = list_dir.invoke({"path": str(tmp_path)})
+    assert "a.txt" in out
+
+
 def test_grep(tmp_path):
     (tmp_path / "a.txt").write_text("needle in hay\n")
     (tmp_path / "b.txt").write_text("nothing here\n")
@@ -234,6 +262,39 @@ def test_grep_passes_H_for_consistent_single_file_output():
         grep.invoke({"pattern": "needle", "path": "."})
 
     assert "-rnIH" in run.call_args[0][0]
+
+
+def test_grep_caps_results(tmp_path):
+    (tmp_path / "a.txt").write_text("\n".join(f"needle {i}" for i in range(10)) + "\n")
+    out = grep.invoke({"pattern": "needle", "path": str(tmp_path), "max_results": 3})
+    assert "needle 0" in out
+    assert "needle 2" in out
+    assert "needle 3" not in out
+    assert "truncated at 3 matches" in out
+
+
+def test_grep_falls_back_and_caps_results(tmp_path):
+    (tmp_path / "a.txt").write_text("\n".join(f"needle {i}" for i in range(10)) + "\n")
+    with patch("gcode.tools.shutil.which", return_value=None):
+        out = grep.invoke({"pattern": "needle", "path": str(tmp_path), "max_results": 3})
+    assert "needle 0" in out
+    assert "needle 2" in out
+    assert "needle 3" not in out
+    assert "truncated at 3 matches" in out
+
+
+def test_grep_python_fallback_caps_results(tmp_path):
+    (tmp_path / "a.txt").write_text("\n".join(f"needle {i}" for i in range(10)) + "\n")
+    out = _grep_python("needle", str(tmp_path), "*", False, 3)
+    assert out.count("needle") == 3
+    assert "needle 3" not in out
+    assert "truncated at 3 matches" in out
+
+
+def test_grep_python_fallback_under_cap_is_unchanged(tmp_path):
+    (tmp_path / "a.txt").write_text("needle here\n")
+    out = _grep_python("needle", str(tmp_path), "*", False, 200)
+    assert "truncated" not in out
 
 
 def test_grep_filters_by_glob(tmp_path):

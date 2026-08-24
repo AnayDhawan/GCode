@@ -19,6 +19,11 @@ AUTO_APPROVE = False
 
 BASH_TIMEOUT = 300
 
+DEFAULT_GREP_MAX_RESULTS = 200
+
+# Directories that clutter list_dir output and are never useful to browse.
+_ALWAYS_IGNORED_NAMES = {".git", "__pycache__"}
+
 
 def set_auto_approve(value: bool) -> None:
     global AUTO_APPROVE
@@ -176,9 +181,41 @@ def edit_file(path: str, old_string: str, new_string: str, replace_all: bool = F
     return f"Edited {path} ({count} occurrence(s) replaced)."
 
 
+def _load_gitignore_patterns(dir_path: str) -> list:
+    """Read glob patterns from a `.gitignore` in dir_path, if one exists.
+
+    Lightweight on purpose: matches bare names/globs against entries in this
+    directory only. Doesn't implement full gitignore semantics (negation,
+    ``**``, or patterns anchored to a specific nested path).
+    """
+    gitignore_path = os.path.join(dir_path, ".gitignore")
+    if not os.path.isfile(gitignore_path):
+        return []
+    try:
+        with open(gitignore_path, encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+    except OSError:
+        return []
+    patterns = []
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        patterns.append(line.rstrip("/"))
+    return patterns
+
+
+def _is_ignored(name: str, patterns: list) -> bool:
+    return any(fnmatch.fnmatch(name, pattern) for pattern in patterns)
+
+
 @tool
 def list_dir(path: str = ".") -> str:
     """List the contents of a directory.
+
+    Skips `.git` and `__pycache__`, and anything matched by a `.gitignore`
+    file in the listed directory, so the model sees the meaningful tree
+    instead of build artifacts.
 
     Args:
         path: Directory to list (default current directory).
@@ -189,6 +226,14 @@ def list_dir(path: str = ".") -> str:
         entries = sorted(os.listdir(path))
     except Exception as exc:
         return f"Error listing {path}: {exc}"
+
+    ignore_patterns = _load_gitignore_patterns(path)
+    entries = [
+        name
+        for name in entries
+        if name not in _ALWAYS_IGNORED_NAMES and not _is_ignored(name, ignore_patterns)
+    ]
+
     if not entries:
         return f"(empty directory: {path})"
     lines = []
@@ -205,6 +250,7 @@ def grep(
     path: str = ".",
     glob: str = "*",
     ignore_case: bool = False,
+    max_results: int = DEFAULT_GREP_MAX_RESULTS,
 ) -> str:
     """Search file contents for a pattern.
 
@@ -217,6 +263,9 @@ def grep(
         path: Directory or file to search (default current directory).
         glob: Shell glob to limit which files are searched (default "*").
         ignore_case: Match upper- and lower-case variants (default False).
+        max_results: Maximum number of matching lines to return (default
+            200); further matches are truncated with a note so a broad
+            search can't blow out the model's context.
     """
     grep_bin = shutil.which("grep")
     if grep_bin:
@@ -243,9 +292,18 @@ def grep(
             return f"No matches for {pattern!r} in {path}."
         if result.returncode != 0:
             return f"grep error: {result.stderr.strip()}"
-        return result.stdout.strip()
+        return _cap_matches(result.stdout.strip(), max_results)
 
-    return _grep_python(pattern, path, glob, ignore_case)
+    return _grep_python(pattern, path, glob, ignore_case, max_results)
+
+
+def _cap_matches(output: str, max_results: int) -> str:
+    """Trim grep output to at most `max_results` lines, noting truncation."""
+    lines = output.splitlines()
+    if len(lines) <= max_results:
+        return output
+    note = f"... [truncated at {max_results} matches; narrow the pattern, path, or glob]"
+    return "\n".join(lines[:max_results]) + "\n" + note
 
 
 def _is_binary(filepath: str) -> bool:
@@ -260,12 +318,19 @@ def _is_binary(filepath: str) -> bool:
     return False
 
 
-def _grep_python(pattern: str, path: str, glob: str, ignore_case: bool = False) -> str:
+def _grep_python(
+    pattern: str,
+    path: str,
+    glob: str,
+    ignore_case: bool = False,
+    max_results: int = DEFAULT_GREP_MAX_RESULTS,
+) -> str:
     """Pure-Python fallback for :func:`grep` when no ``grep`` binary exists.
 
     Walks ``path`` (or searches a single file), matching filenames against
     ``glob`` and lines against ``pattern`` as a regex. Best-effort: unreadable
-    or binary-looking files are skipped rather than raising.
+    or binary-looking files are skipped rather than raising. Stops early once
+    ``max_results`` matches are found.
     """
     try:
         regex = re.compile(pattern, re.IGNORECASE if ignore_case else 0)
@@ -287,14 +352,20 @@ def _grep_python(pattern: str, path: str, glob: str, ignore_case: bool = False) 
     else:
         return f"Path not found: {path}"
 
-    matches = []
+    matches: list[str] = []
+    truncated = False
     for filepath in sorted(files):
+        if truncated:
+            break
         if _is_binary(filepath):
             continue
         try:
             with open(filepath, encoding="utf-8", errors="strict") as f:
                 for lineno, line in enumerate(f, start=1):
                     if regex.search(line):
+                        if len(matches) >= max_results:
+                            truncated = True
+                            break
                         matches.append(f"{filepath}:{lineno}:{line.rstrip(chr(10))}")
         except (UnicodeDecodeError, OSError):
             # Skip binary or unreadable files, same as `grep -I`.
@@ -302,7 +373,10 @@ def _grep_python(pattern: str, path: str, glob: str, ignore_case: bool = False) 
 
     if not matches:
         return f"No matches for {pattern!r} in {path}."
-    return "\n".join(matches)
+    result = "\n".join(matches)
+    if truncated:
+        result += f"\n... [truncated at {max_results} matches; narrow the pattern, path, or glob]"
+    return result
 
 
 @tool
