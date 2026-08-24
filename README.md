@@ -30,7 +30,9 @@ pip install -e .
 ```
 
 **On Windows?** See the [Windows setup and troubleshooting guide](docs/windows.md)
-for native, WSL2, and Git Bash instructions and known limitations.
+for native, WSL2, and Git Bash instructions and known limitations. For a
+platform-by-platform summary of what's supported and CI-tested, see the
+[OS support matrix](docs/os-support.md).
 
 ## Setup
 
